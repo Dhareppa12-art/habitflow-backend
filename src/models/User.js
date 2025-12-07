@@ -21,6 +21,10 @@ const userSchema = new mongoose.Schema(
     timezone: { type: String, default: 'Asia/Kolkata' },
     weekStart: { type: String, default: 'monday' }, // 'sunday' | 'monday'
     themePreference: { type: String, default: 'system' }, // 'light' | 'dark' | 'system'
+
+    // 🔐 Password reset
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
   },
   { timestamps: true }
 );

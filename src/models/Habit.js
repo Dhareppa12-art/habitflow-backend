@@ -26,13 +26,27 @@ const habitSchema = new mongoose.Schema(
       default: 'daily',
     },
 
+    // OLD field (kept for compatibility with any old code)
     timeOfDay: {
       type: String, // "07:00", "21:30"
     },
 
+    // NEW canonical reminder time (we will also store "HH:mm" here)
+    reminderTime: {
+      type: String, // "07:00", "21:30"
+      default: '',
+    },
+
+    // reminder on/off
     reminderEnabled: {
       type: Boolean,
       default: false,
+    },
+
+    // to avoid sending the same reminder multiple times in one day
+    lastReminderDate: {
+      type: String, // "YYYY-MM-DD"
+      default: null,
     },
 
     isActive: {

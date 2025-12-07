@@ -18,8 +18,14 @@ function startOfDay(date) {
 // ----------------------------------------
 router.post('/create', authMiddleware, async (req, res) => {
   try {
-    const { title, description, frequency, timeOfDay, reminderEnabled } =
-      req.body;
+    const {
+      title,
+      description,
+      frequency,
+      timeOfDay,
+      reminderEnabled,
+      reminderTime,
+    } = req.body;
 
     if (!title) {
       return res
@@ -27,13 +33,27 @@ router.post('/create', authMiddleware, async (req, res) => {
         .json({ success: false, message: 'Title is required' });
     }
 
+    // normalize flags/time coming from frontend
+    const finalReminderEnabled = !!reminderEnabled;
+
+    // we support both `timeOfDay` (old) and `reminderTime` (new)
+    const finalReminderTime = finalReminderEnabled
+      ? timeOfDay || reminderTime || ''
+      : '';
+
     const habit = await Habit.create({
       user: req.user.id,
       title,
       description: description || '',
       frequency: frequency || 'daily',
-      timeOfDay: timeOfDay || '',
-      reminderEnabled: !!reminderEnabled,
+
+      // keep old field for compatibility
+      timeOfDay: finalReminderTime,
+
+      // new canonical reminder fields
+      reminderEnabled: finalReminderEnabled,
+      reminderTime: finalReminderTime,
+
       isActive: true,
       completedDates: [], // make sure it always exists
     });
