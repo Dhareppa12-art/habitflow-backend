@@ -53,7 +53,7 @@ app.use(
         return callback(null, true);
       }
 
-      console.log('❌ CORS blocked origin:', origin);
+      console.log(' CORS blocked origin:', origin);
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -84,7 +84,7 @@ app.use('/api/ai', aiRoutes);
 
 // ✅ 404 handler
 app.use((req, res) => {
-  console.log('❌ No route matched for:', req.method, req.originalUrl);
+  console.log(' No route matched for:', req.method, req.originalUrl);
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
@@ -102,7 +102,7 @@ const mailTransporter = nodemailer.createTransport({
 // helper to send reminder email
 async function sendHabitEmailReminder(habit, userEmail, time) {
   if (!userEmail) {
-    console.log('⚠️ No email set for user', habit.user);
+    console.log('No email set for user', habit.user);
     return;
   }
 
@@ -114,7 +114,7 @@ async function sendHabitEmailReminder(habit, userEmail, time) {
 
 It's time for your habit: "${habit.title}" at ${time}.
 
-Keep your streak going! 💪
+Keep your streak going! 
 
 — HabitFlow`,
   };
@@ -128,7 +128,7 @@ Keep your streak going! 💪
 }
 
 // -------------------------------------------------
-// ⏰ REMINDER CRON – runs every minute
+//  REMINDER CRON – runs every minute
 // -------------------------------------------------
 cron.schedule('* * * * *', async () => {
   try {
