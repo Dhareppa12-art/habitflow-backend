@@ -13,7 +13,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!GEMINI_API_KEY) {
-  console.warn('⚠️ GEMINI_API_KEY is not set. AI Coach will not work.');
+  console.warn('GEMINI_API_KEY is not set. AI Coach will not work.');
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);

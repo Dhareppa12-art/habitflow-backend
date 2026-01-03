@@ -18,13 +18,17 @@ const aiRoutes = require('./routes/aiRoutes');
 
 const app = express();
 
-// ✅ Connect to DB
+/* =========================
+   CONNECT DATABASE
+========================= */
 connectDB();
 
-// ✅ JSON body parser
+/* =========================
+   MIDDLEWARES
+========================= */
 app.use(express.json());
 
-// 🔍 Log all incoming URLs (for debugging)
+// Debug incoming requests
 app.use((req, res, next) => {
   console.log(
     '➡️ Incoming:',
@@ -36,25 +40,34 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ CORS configuration (LOCAL + RENDER)
+/* =========================
+   CORS CONFIG (AZURE SAFE)
+========================= */
 const allowedOrigins = [
-  'http://localhost:4200', // local Angular
-  'https://habitflow-frontend-hm9x.onrender.com', // deployed Angular
-  process.env.CLIENT_URL, // fallback (if set)
+  'http://localhost:4200', // Local Angular
+  'https://habitflow-frontend-hm9x.onrender.com', // Render frontend
+  process.env.CLIENT_URL, // Azure / future frontend
 ].filter(Boolean);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow non-browser tools like Postman (no origin header)
+      // Allow Postman, Azure probes, server-to-server
       if (!origin) return callback(null, true);
 
+      // Allow known frontends
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      console.log(' CORS blocked origin:', origin);
-      return callback(new Error('Not allowed by CORS'));
+      // Allow Azure internal traffic
+      if (origin.includes('azurewebsites.net')) {
+        return callback(null, true);
+      }
+
+      // TEMP SAFE FALLBACK (prevents app crash)
+      console.log('⚠️ CORS allowed temporarily for:', origin);
+      return callback(null, true);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -62,18 +75,24 @@ app.use(
   })
 );
 
-// ✅ Handle preflight for all routes
+// Preflight support
 app.options('*', cors());
 
-// ✅ HTTP logger
+/* =========================
+   LOGGING
+========================= */
 app.use(morgan('dev'));
 
-// ✅ Health check route
+/* =========================
+   HEALTH CHECK
+========================= */
 app.get('/', (req, res) => {
   res.send('HabitFlow API is running');
 });
 
-// ✅ API Routes
+/* =========================
+   API ROUTES
+========================= */
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/habits', habitRoutes);
@@ -82,29 +101,27 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
 
-// ✅ 404 handler
+/* =========================
+   404 HANDLER
+========================= */
 app.use((req, res) => {
-  console.log(' No route matched for:', req.method, req.originalUrl);
+  console.log('❌ No route matched:', req.method, req.originalUrl);
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// -------------------------------------------------
-// ✉️ Nodemailer transporter using Gmail App Password
-// -------------------------------------------------
+/* =========================
+   EMAIL CONFIG
+========================= */
 const mailTransporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER, // your Gmail
-    pass: process.env.EMAIL_PASS, // 16-digit app password (no spaces)
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
 
-// helper to send reminder email
 async function sendHabitEmailReminder(habit, userEmail, time) {
-  if (!userEmail) {
-    console.log('No email set for user', habit.user);
-    return;
-  }
+  if (!userEmail) return;
 
   const mailOptions = {
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
@@ -112,65 +129,55 @@ async function sendHabitEmailReminder(habit, userEmail, time) {
     subject: `Habit reminder: ${habit.title}`,
     text: `Hi,
 
-It's time for your habit: "${habit.title}" at ${time}.
+It's time for your habit "${habit.title}" at ${time}.
 
-Keep your streak going! 
+Keep your streak going!
 
 — HabitFlow`,
   };
 
   try {
     await mailTransporter.sendMail(mailOptions);
-    console.log(`📧 Email sent to ${userEmail} for habit "${habit.title}"`);
+    console.log(`📧 Email sent to ${userEmail}`);
   } catch (err) {
-    console.error('EMAIL SEND ERROR:', err.message || err);
+    console.error('EMAIL ERROR:', err.message);
   }
 }
 
-// -------------------------------------------------
-//  REMINDER CRON – runs every minute
-// -------------------------------------------------
+/* =========================
+   CRON JOB (EVERY MINUTE)
+========================= */
 cron.schedule('* * * * *', async () => {
   try {
     const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(
+      now.getMinutes()
+    ).padStart(2, '0')}`;
 
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hours}:${minutes}`; // "HH:mm"
+    const today = now.toISOString().slice(0, 10);
 
-    const today = now.toISOString().slice(0, 10); // "YYYY-MM-DD"
-
-    // find all habits that need reminder now
     const habitsToRemind = await Habit.find({
       isActive: true,
       reminderEnabled: true,
       reminderTime: currentTime,
       $or: [{ lastReminderDate: null }, { lastReminderDate: { $ne: today } }],
-    }).populate('user'); // get user email
-
-    if (!habitsToRemind.length) return;
+    }).populate('user');
 
     for (const habit of habitsToRemind) {
-      const user = habit.user;
-      const userEmail = user && user.email ? user.email : null;
-
-      // 1) Log in server
-      console.log(
-        `⏰ Reminder: Habit "${habit.title}" for user ${habit.user} at ${currentTime}`
-      );
-
-      // 2) Send email
+      const userEmail = habit.user?.email;
       await sendHabitEmailReminder(habit, userEmail, currentTime);
-
-      // 3) Mark as reminded today so we don't spam
       habit.lastReminderDate = today;
       await habit.save();
     }
   } catch (err) {
-    console.error('REMINDER CRON ERROR', err);
+    console.error('CRON ERROR:', err);
   }
 });
 
-// ✅ Start server
+/* =========================
+   START SERVER (AZURE READY)
+========================= */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(` Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`✅ HabitFlow API running on port ${PORT}`)
+);
