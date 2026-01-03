@@ -8,6 +8,7 @@ const cron = require('node-cron');
 const nodemailer = require('nodemailer');
 const Habit = require('./models/Habit');
 
+// Routes
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const habitRoutes = require('./routes/habitRoutes');
@@ -19,75 +20,44 @@ const aiRoutes = require('./routes/aiRoutes');
 const app = express();
 
 /* =========================
-   CONNECT DATABASE
+   DATABASE
 ========================= */
 connectDB();
 
 /* =========================
-   MIDDLEWARES
+   MIDDLEWARE
 ========================= */
 app.use(express.json());
-
-// Debug incoming requests
-app.use((req, res, next) => {
-  console.log(
-    '➡️ Incoming:',
-    req.method,
-    req.originalUrl,
-    'origin:',
-    req.headers.origin
-  );
-  next();
-});
+app.use(morgan('dev'));
 
 /* =========================
-   CORS CONFIG (AZURE SAFE)
+   CORS (AZURE SAFE)
 ========================= */
 const allowedOrigins = [
-  'http://localhost:4200', // Local Angular
-  'https://habitflow-frontend-hm9x.onrender.com', // Render frontend
-  process.env.CLIENT_URL, // Azure / future frontend
+  'http://localhost:4200',
+  'https://habitflow-frontend-hm9x.onrender.com',
+  process.env.CLIENT_URL,
 ].filter(Boolean);
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow Postman, Azure probes, server-to-server
+    origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-
-      // Allow known frontends
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      // Allow Azure internal traffic
-      if (origin.includes('azurewebsites.net')) {
-        return callback(null, true);
-      }
-
-      // TEMP SAFE FALLBACK (prevents app crash)
-      console.log('⚠️ CORS allowed temporarily for:', origin);
-      return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.log('❌ CORS blocked:', origin);
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
-
-// Preflight support
-app.options('*', cors());
-
-/* =========================
-   LOGGING
-========================= */
-app.use(morgan('dev'));
 
 /* =========================
    HEALTH CHECK
 ========================= */
 app.get('/', (req, res) => {
-  res.send('HabitFlow API is running');
+  res.send('✅ HabitFlow API is running');
 });
 
 /* =========================
@@ -105,14 +75,14 @@ app.use('/api/ai', aiRoutes);
    404 HANDLER
 ========================= */
 app.use((req, res) => {
-  console.log('❌ No route matched:', req.method, req.originalUrl);
+  console.log('❌ No route:', req.method, req.originalUrl);
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
 /* =========================
    EMAIL CONFIG
 ========================= */
-const mailTransporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
@@ -120,27 +90,28 @@ const mailTransporter = nodemailer.createTransport({
   },
 });
 
+/* =========================
+   EMAIL REMINDER
+========================= */
 async function sendHabitEmailReminder(habit, userEmail, time) {
   if (!userEmail) return;
 
-  const mailOptions = {
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-    to: userEmail,
-    subject: `Habit reminder: ${habit.title}`,
-    text: `Hi,
-
-It's time for your habit "${habit.title}" at ${time}.
-
-Keep your streak going!
-
-— HabitFlow`,
-  };
-
   try {
-    await mailTransporter.sendMail(mailOptions);
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: userEmail,
+      subject: `Habit Reminder: ${habit.title}`,
+      text: `Hi 👋
+
+It's time for your habit: "${habit.title}" at ${time}
+
+Keep going 💪
+— HabitFlow`,
+    });
+
     console.log(`📧 Email sent to ${userEmail}`);
   } catch (err) {
-    console.error('EMAIL ERROR:', err.message);
+    console.error('❌ Email error:', err.message);
   }
 }
 
@@ -150,34 +121,35 @@ Keep your streak going!
 cron.schedule('* * * * *', async () => {
   try {
     const now = new Date();
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(
-      now.getMinutes()
-    ).padStart(2, '0')}`;
-
+    const currentTime = now.toTimeString().slice(0, 5);
     const today = now.toISOString().slice(0, 10);
 
-    const habitsToRemind = await Habit.find({
+    const habits = await Habit.find({
       isActive: true,
       reminderEnabled: true,
       reminderTime: currentTime,
       $or: [{ lastReminderDate: null }, { lastReminderDate: { $ne: today } }],
     }).populate('user');
 
-    for (const habit of habitsToRemind) {
-      const userEmail = habit.user?.email;
-      await sendHabitEmailReminder(habit, userEmail, currentTime);
+    for (const habit of habits) {
+      await sendHabitEmailReminder(
+        habit,
+        habit.user?.email,
+        currentTime
+      );
       habit.lastReminderDate = today;
       await habit.save();
     }
   } catch (err) {
-    console.error('CRON ERROR:', err);
+    console.error('❌ CRON ERROR:', err);
   }
 });
 
 /* =========================
-   START SERVER (AZURE READY)
+   START SERVER (AZURE)
 ========================= */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () =>
-  console.log(`✅ HabitFlow API running on port ${PORT}`)
-);
+
+app.listen(PORT, () => {
+  console.log(`🚀 HabitFlow API running on port ${PORT}`);
+});
